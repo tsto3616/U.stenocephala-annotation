@@ -18,11 +18,11 @@ Illumina NovaSeq 6000 was prepared by following the genome isolation kit (**Mona
 
 ## **Bioinformatic processing:**
 
-Briefly, samples were assembled, decontaminated, soft masked and annotated de-novo or via homology. Greater detail is provided in the "General bioinformatic pipeline" branch, a full account of the specific methods used to produce results are in their respective pipeline for each gene family's individual branch.
+Briefly, samples were assembled, decontaminated, soft masked and annotated de-novo or via homology. Greater detail is provided in the "General-bioinformatic-pipeline" branch, a full account of the specific methods used to produce results are in their respective pipeline for each gene family's individual branch.
 
 ## **Navigating this repository:** 
 
-This repository is split into the "Main branch", the "General bioinformatic pipeline" branch and numerous branches for gene families of interest. **Each gene family of interest branch will feature the specifics of the project for that given gene family - or molecular function associated with a set of gene families - without repeating the over-arching bioinformatic pipeline.** It is hoped that this way the reader can easily navigate to the desired molecular function or branch without having to read excess detail.
+This repository is split into the "Main branch", the "General-bioinformatic-pipeline" branch and numerous branches for gene families of interest. **Each gene family of interest branch will feature the specifics of the project for that given gene family - or molecular function associated with a set of gene families - without repeating the over-arching bioinformatic pipeline.** It is hoped that this way the reader can easily navigate to the desired molecular function or branch without having to read excess detail.
 
 ## **General inquries:**
 
