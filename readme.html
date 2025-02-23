@@ -395,11 +395,145 @@ below:</p>
 <pre><code>spades.py -1 /scratch/U_steno_seq/Illumina/JS6871_1.fq.gz -2 /scratch/U_steno_seq/Illumina/JS6871_2.fq.gz /scratch/U_steno_seq/Illumina/JS6871
 
 spades.py -1 /scratch/U_steno_seq/Illumina/JS6872_1.fq.gz -2 /scratch/U_steno_seq/Illumina/JS6872_2.fq.gz /scratch/U_steno_seq/Illumina/JS6872</code></pre>
-<p>The contigs and scaffolds of the JS6871 and JS6872 are featured in
-the JS6871 and JS6872 folders of this branch of the repository. These
-files are referred to as contigs.fasta and scaffolds.fasta
-respectively.</p>
+<p>The scaffolds of the JS6871 and JS6872 are featured in… not sure
+where to upload these too, will upload to the sharedrive
+:/B14/Thomas/Uncinaria_assembly/JS6871
+/B14/Thomas/Uncinaria_assembly/JS6872.</p>
 </div>
+</div>
+<div id="decontamination" class="section level2">
+<h2><strong>Decontamination:</strong></h2>
+<p>Decontamination was carried out through the tool blobtools to remove
+low coverage and contaminated reads.</p>
+<p>First one needs to download the taxonomy dump to provide a reference
+for blobtools to identify the sequences.</p>
+<pre><code>curl -L ftp://ftp.ncbi.nih.gov/blast/db/taxdb.tar.gz | tar xzf -</code></pre>
+<p>Then to speed up the process the reference file is fixed and split
+into 100 reads per file.</p>
+<pre><code>seqtk seq -A /scratch/U_steno_seq/Illumina/JS6871.fasta/scaffolds.fasta &gt; /scratch/U_steno_seq/Illumina/JS6871.fasta/scaffolds.reduced.l0.fasta
+split -l 200 /scratch/U_steno_seq/Illumina/JS6871.fasta/scaffolds.reduced.l0.fasta</code></pre>
+<p>The split files are then searched via blast, for the database
+‘nt’.</p>
+<pre><code>wget ftp://ftp.ncbi.nlm.nih.gov/blast/db/nt.*.tar.gz
+
+makeblastdb -in /scratch/U_steno_seq/Illumina/nt -dbtype nucl
+
+# Run BLAST in parallel
+find . -name &#39;xaa*&#39; -print0 | xargs -0 -n 1 -P 10 bash -c &quot;blastn -db /scratch/U_steno_seq/Illumina/nt -query \
+/scratch/U_steno_seq/Illumina/JS6871.fasta/scaffolds.reduced.l0.fasta -outfmt &#39;6 qseqid staxids bitscore std sscinames \
+sskingdoms stitle&#39; -max_target_seqs 10 -max_hsps 1 -evalue 1e-25 -num_threads 16 -out /scratch/U_steno_seq/Illumina/blob.tsv&quot;</code></pre>
+<p>Coverage data is then generated so that the reads scaffolds can be
+reduced for low coverage segments.</p>
+<pre><code>minimap2 -ax sr -t 16 /scratch/U_steno_seq/Illumina/JS6871/scaffolds.reduced.l0.fasta /scratch/U_steno_seq/Illumina/JS6871_1.fq.gz \
+/scratch/U_steno_seq/Illumina/JS6871_2.fq.gz | samtools sort -@16 -O BAM -o /scratch/U_steno_seq/Illumina/Uste_assembly.bam -</code></pre>
+<p>Blobtools can then be used to eliminate the contaminated data and low
+coverage data</p>
+<pre><code>blobtools create -i /scratch/U_steno_seq/Illumina/JS6871.fasta/scaffolds.reduced.l0.fasta -b /scratch/U_steno_seq/Illumina/Uste_assembly.bam* -t \
+/scratch/U_steno_seq/Illumina/blob.tsv -o /scratch/U_steno_seq/Illumina/Uste_norm # 2&gt;&amp;1 | tee /scratch/U_steno_seq/Illumina/blobtools_create.log
+blobtools plot -i /scratch/U_steno_seq/Illumina/Uste_norm_out.blobDB.json -r phylum --out /scratch/U_steno_seq/Illumina/export2/Blob_graph2.png \
+2&gt;&amp;1 | tee /scratch/U_steno_seq/Illumina/blobtools_plot.png
+blobtools view -i /scratch/U_steno_seq/Illumina/Uste_norm_out.blobDB.json -r phylum | gzip &gt; /scratch/U_steno_seq/Illumina/export2/output_view.txt.gz</code></pre>
+<p>Then we filter the blobtools output to only keep the segments that
+contain the Nematoda matches or unidentified sequences.</p>
+<pre><code>grep &quot;Nematoda\|no-hit&quot; /home/tsto3616/Uste_norm_out.blobDB.table.txt | cut -f1 &gt; /scratch/U_steno_seq/Illumina/blobtools_filter_byhit.list
+awk &#39;{if($3&gt;10) print $1}&#39; /scratch/U_steno_seq/Illumina/_Uste_norm_out.Uste_assembly.bam.cov &gt; /scratch/U_steno_seq/Illumina/blobtools_filter_bycov_gt10\
+.list
+cat /scratch/U_steno_seq/Illumina/blobtools_filter_byhit.list /scratch/U_steno_seq/Illumina/blobtools_filter_bycov_gt10.list | sort | uniq -c | \
+awk &#39;{if($1==2) print $2}&#39; &gt; /scratch/U_steno_seq/Illumina/blobtools_filter_bycov_gt10_byhit.list</code></pre>
+<p>Then we convert the .list file into a fasta file for future
+analyses:</p>
+<pre><code>seqtk subseq /scratch/U_steno_seq/Illumina/JS6871/scaffolds.reduced.l0.fasta /scratch/U_steno_seq/Illumina/blobtools_filter_bycov_gt10_byhit.list &gt; /scratch/U_steno_seq/Illumina/JS6871_cleaned.fasta</code></pre>
+<p>Then repeat for JS6872!</p>
+</div>
+<div id="repeat-masking" class="section level2">
+<h2><strong>Repeat masking:</strong></h2>
+<p>To repeat mask the genome we employed repeat masker. The first step
+is to build a database for the query/ scaffolds that are going to form
+the basis of the repeat database used for repeat masking. THen repeat
+modeler is applied to the database:</p>
+<pre><code>BuildDatabase -name /scratch/U_steno_seq/Illumina/JS6872_db /scratch/U_steno_seq/Illumina/JS6872/scaffolds.fasta
+
+RepeatModeler -database /scratch/U_steno_seq/Illumina/JS6872_db -pa 36 &gt; /scratch/U_steno_seq/Illumina/scaffolds-families_2.fa</code></pre>
+<p>Then to make sense of our database we separate the repeats into
+known/ classified repeats and unknown repeats. This forms the basis of
+later repeat annotation if that is to occur.</p>
+<pre><code>cat /scratch/U_steno_seq/Illumina/scaffolds-families_2.fa | seqkit fx2tab | awk &#39;{ print &quot;abcDef1_&quot;$0 }&#39; | seqkit tab2fx &gt; \
+/scratch/U_steno_seq/Illumina/scaffolds-families.prefix_2.fa
+
+cat /scratch/U_steno_seq/Illumina/scaffolds-families.prefix_2.fa | seqkit fx2tab | grep -v &quot;Unknown&quot; | seqkit tab2fx &gt; \
+/scratch/U_steno_seq/Illumina/scaffolds-families.prefix_JS6872.fa.known
+cat /scratch/U_steno_seq/Illumina/scaffolds-families.prefix_2.fa | seqkit fx2tab | grep &quot;Unknown&quot; | seqkit tab2fx &gt; \
+/scratch/U_steno_seq/Illumina/scaffolds-families.prefix_JS6872.fa.unknown
+
+grep -c &quot;&gt;&quot; /scratch/U_steno_seq/Illumina/scaffolds-families.prefix_JS6872.fa.known
+grep -c &quot;&gt;&quot; /scratch/U_steno_seq/Illumina/scaffolds-families.prefix_JS6872.fa.unknown</code></pre>
+<p>Now that we have our repeat database, we apply this to the file to be
+masked. To conserve time we decided to use the decontaminated file of
+JS6872.</p>
+<pre><code>RepeatMasker -pa 36 -gff -lib /scratch/U_steno_seq/Illumina/scaffolds-families.fa -dir /scratch/U_steno_seq/Illumina/MaskerOutput /scratch/U_steno_seq/Illumina/JS6871_cleaned.fasta</code></pre>
+</div>
+<div id="note-should-include-pipeline-on-rescaffolding-if-we-decide-to-go-down-that-path-due-to-failure-on-ont-isolation-and-amplification" class="section level2">
+<h2><strong>Note should include pipeline on rescaffolding if we decide
+to go down that path due to failure on ONT isolation and
+amplification!</strong></h2>
+</div>
+<div id="searching-the-genome-through-blast" class="section level2">
+<h2><strong>Searching the genome through BLAST+:</strong></h2>
+<p>BLAST+ is a prominent feature of this github repository, with the aim
+of obtaining results before the assembly and annotation is complete. For
+this we have outlined the general steps of the search of the local
+genome, for both blastn and tblastn.</p>
+<p>For both the blastn and the tblastn pipeline the original step
+remains the same, first a database must be built for the genome being
+searched:</p>
+<pre><code>makeblastdb -in /scratch/U_steno_seq/Illumina/JS6872/scaffolds.fasta -dbtype nucl</code></pre>
+<p>Then we proceed to search the genome for a query of oru choosing,
+which is listed in the individual branch dedicated for that subset of
+the analyses. The seach is performed through the code below - first for
+the blastn search, then the tblastn search:</p>
+<pre><code>blastn -task blastn -query /scratch/U_steno_seq/import/PI3K1_nucl.txt -db /scratch/U_steno_seq/Illumina/JS6872/scaffolds.fasta \
+-out /scratch/U_steno_seq/Illumina/export2/JS6872_PI3K1_nucl.txt -outfmt &quot;6 qseqid sseqid sseq&quot;
+
+tblastn -task tblastn -query /scratch/U_steno_seq/import/Wnt_path.txt -db /scratch/U_steno_seq/Illumina/JS6872/scaffolds.fasta -out /scratch/U_steno_seq/Illumina/export2/JS6872_PI3K1_prot.txt -outfmt &quot;6 qseqid sseqid sseq&quot;</code></pre>
+<p>The resultant files are three column text files, with the first
+column (qseqid) representing the name of the query sequence, the secodn
+(sseqid) being the name of scaffold containing the query match and the
+thrid column (sseq) being the match.</p>
+<p>We can then input the text file into Rstudio, select out a vector of
+just the second column, with the code below, then inport the results
+back into the linux environment to select all the scaffolds in the
+vector.</p>
+<pre><code># upload matrix
+prot&lt;- read.table(&quot;C:/Users/tsto3616/U.stenocephala/JS6872_PI3K1_prot.txt&quot;)
+
+prot&lt;- prot[, 2]
+
+head(prot)
+
+prot&lt;-as.data.frame(prot)
+
+write.table(prot, file=&quot;C:/Users/tsto3616/U.stenocephala/JS6872_PI3K1_names.txt&quot;, sep=&quot;;&quot;, col.names=FALSE, quote=FALSE, row.names=FALSE)</code></pre>
+<p>Then import it back into Linux to isolate the scaffolds:</p>
+<pre><code>seqkit grep -f /scratch/U_steno_seq/import/JS6872_PI3K1_names.txt /scratch/U_steno_seq/Illumina/JS6872/scaffolds.fasta &gt; /scratch/U_steno_seq/Illumina/export2/JS6872_PI3K1_scaff.fasta</code></pre>
+</div>
+<div id="mapping-reads-to-a-reference-sequence" class="section level2">
+<h2><strong>Mapping reads to a reference sequence:</strong></h2>
+<p>This practice was used to identify coverage of genes, visualise
+variation and further confirm the identification of genes. To do this we
+need to index the reference sequence which is going to have reads mapped
+to it:</p>
+<pre><code>bwa index /scratch/U_steno_seq/Illumina/tubb-1_JS6872.fa</code></pre>
+<p>Then we map the reads to the reference through bwa mem:</p>
+<pre><code>bwa mem /scratch/U_steno_seq/Illumina/tubb-1_JS6872.fa \
+/scratch/U_steno_seq/Illumina/JS6872_1.fq.gz /scratch/U_steno_seq/Illumina/JS6872_2.fq.gz &gt; /scratch/U_steno_seq/Illumina/tubb-1_JS6872.sam</code></pre>
+<p>The .sam file is then reformatted to be visualised</p>
+<pre><code>samtools sort /scratch/U_steno_seq/Illumina/tubb-1_JS6872.sam  -o /scratch/U_steno_seq/Illumina/tubb-1_JS6872.sam
+
+samtools view -S -b /scratch/U_steno_seq/Illumina/tubb-1_JS6872.sam &gt; /scratch/U_steno_seq/Illumina/export2/tubb-1_JS6872.bam
+
+samtools sort /scratch/U_steno_seq/Illumina/tubb-1_JS6872.bam -o /scratch/U_steno_seq/Illumina/tubb-1_JS6872.bam
+
+samtools index /scratch/U_steno_seq/Illumina/export/tubb-1_JS6872.bam /scratch/U_steno_seq/Illumina/export/tubb-1_JS6872.bam.bai</code></pre>
 </div>
 </div>
 
